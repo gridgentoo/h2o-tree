@@ -1595,8 +1595,9 @@ public class GLM extends ModelBuilder<GLMModel,GLMParameters,GLMOutput> {
       _gram = gram;
       // Try to pick optimal rho constant here used in ADMM solver.
       //
-      // Rho defines the strength of proximal-penalty and also the strentg of L1 penalty aplpied in each step.
-      // Picking good rho constant is tricky and greatly influences the speed of convergence and precision with which we are able to solve the problem.
+      // Rho defines the strength of proximal-penalty and also the strength of L1 penalty applied in each step.
+      // Picking good rho constant is tricky and greatly influences the speed of convergence and precision with 
+      // which we are able to solve the problem.
       //
       // Intuitively, we want the proximal l2-penalty ~ l1 penalty (l1 pen = lambda/rho, where lambda is the l1 penalty applied to the problem)
       // Here we compute the rho for each coordinate by using equation for computing coefficient for single coordinate and then making the two penalties equal.
