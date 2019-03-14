@@ -1138,6 +1138,220 @@ public abstract class GLMTask  {
     }
   }
 
+  static class GLMMultinomialGradientSpeedUpTask extends MRTask<GLMMultinomialGradientSpeedUpTask> {
+    final double[] _beta;
+    final transient double _currentLambda;
+    final transient double _reg;
+    public double[] _gradient;
+    double _likelihood;
+    Job _job;
+    final boolean _sparse;
+    final DataInfo _dinfo;
+    final int _nclass;
+    final int _ncoeffPClass;   // number of predictors after enum expansion + intercept
+    final int _npred;   // number of predictors after enum expansion
+    
+    // parameters used by ordinal regression
+    Link _link;           // link function, e.g. ologit, ologlog, oprobit
+    GLMParameters _glmp;  // parameter used to access linkinv and linkinvderiv functions
+
+    /**
+     * @param job
+     * @param dinfo
+     * @param lambda
+     * @param beta   coefficients as 2D array [P][K]
+     * @param reg
+     */
+    public GLMMultinomialGradientSpeedUpTask(Job job, DataInfo dinfo, double lambda, double[] beta, double reg) {
+      _currentLambda = lambda;
+      _reg = reg;
+      // need to flip the beta
+      _beta = new double[beta.length];
+      System.arraycopy(beta, 0, _beta, 0, beta.length);
+      _job = job;
+      _sparse = FrameUtils.sparseRatio(dinfo._adaptedFrame) < .125;
+      _dinfo = dinfo;
+      _nclass = beta.length/(dinfo.fullN()+1);
+      _ncoeffPClass = dinfo.fullN()+1;
+      _npred = dinfo.fullN();
+      if (_dinfo._offset) throw H2O.unimpl();
+    }
+
+    public GLMMultinomialGradientSpeedUpTask(Job job, DataInfo dinfo, double lambda, double[] beta, GLMParameters glmp) {
+      this(job, dinfo, lambda, beta, glmp._obj_reg);
+      _link = glmp._link;
+      _glmp = glmp;
+
+    }
+
+    // common between multinomial and ordinal
+    public final void computeCategoricalEtas(Chunk[] chks, double[][] etas, double[] vals, int[] ids) {
+      // categoricals
+      for (int cid = 0; cid < _dinfo._cats; ++cid) {
+        Chunk c = chks[cid];
+        if (c.isSparseZero()) {
+          int nvals = c.getSparseDoubles(vals, ids, -1);
+          for (int i = 0; i < nvals; ++i) {
+            int id = _dinfo.getCategoricalId(cid, (int) vals[i]);
+            if (id >= 0) ArrayUtils.add(etas[ids[i]], _beta[id]);
+          }
+        } else {
+          c.getIntegers(ids, 0, c._len, -1);
+          for (int i = 0; i < ids.length; ++i) {
+            int id = _dinfo.getCategoricalId(cid, ids[i]);
+            if (id >= 0) ArrayUtils.add(etas[i], _beta[id]);
+          }
+        }
+      }
+    }
+
+/*    public final void computeCategoricalGrads(Chunk[] chks, double[][] etas, double[] vals, int[] ids) {
+      // categoricals
+      for (int cid = 0; cid < _dinfo._cats; ++cid) {
+        Chunk c = chks[cid];
+        if (c.isSparseZero()) {
+          int nvals = c.getSparseDoubles(vals, ids, -1);
+          for (int i = 0; i < nvals; ++i) {
+            int id = _dinfo.getCategoricalId(cid, (int) vals[i]);
+            if (id >= 0) ArrayUtils.add(_gradient[id], etas[ids[i]]);
+          }
+        } else {
+          c.getIntegers(ids, 0, c._len, -1);
+          for (int i = 0; i < ids.length; ++i) {
+            int id = _dinfo.getCategoricalId(cid, ids[i]);
+            if (id >= 0) ArrayUtils.add(_gradient[id], etas[i]);
+          }
+        }
+      }
+    }*/
+
+/*    public final void computeNumericEtas(Chunk[] chks, double[][] etas, double[] vals, int[] ids) {
+      int numOff = _dinfo.numStart();
+      for (int cid = 0; cid < _dinfo._nums; ++cid) {
+        double[] b = _beta[numOff + cid];
+        double scale = _dinfo._normMul != null ? _dinfo._normMul[cid] : 1;
+        double NA = _dinfo._numMeans[cid];
+        Chunk c = chks[cid + _dinfo._cats];
+        if (c.isSparseZero() || c.isSparseNA()) {
+          int nvals = c.getSparseDoubles(vals, ids, NA);
+          for (int i = 0; i < nvals; ++i) {
+            double d = vals[i] * scale;
+            ArrayUtils.wadd(etas[ids[i]], b, d);
+          }
+        } else {
+          c.getDoubles(vals, 0, vals.length, NA);
+          double off = _dinfo._normSub != null ? _dinfo._normSub[cid] : 0;
+          for (int i = 0; i < vals.length; ++i) {
+            double d = (vals[i] - off) * scale;
+            ArrayUtils.wadd(etas[i], b, d);
+          }
+        }
+      }
+    }*/
+
+/*    public final void computeNumericGrads(Chunk[] chks, double[][] etas, double[] vals, int[] ids) {
+      int numOff = _dinfo.numStart();
+      for (int cid = 0; cid < _dinfo._nums; ++cid) {
+        double[] g = _gradient[numOff + cid];
+        double NA = _dinfo._numMeans[cid];
+        Chunk c = chks[cid + _dinfo._cats];
+        double scale = _dinfo._normMul == null ? 1 : _dinfo._normMul[cid];
+        if (c.isSparseZero() || c.isSparseNA()) {
+          int nVals = c.getSparseDoubles(vals, ids, NA);
+          for (int i = 0; i < nVals; ++i)
+            ArrayUtils.wadd(g, etas[ids[i]], vals[i] * scale);
+        } else {
+          double off = _dinfo._normSub == null ? 0 : _dinfo._normSub[cid];
+          c.getDoubles(vals, 0, vals.length, NA);
+          for (int i = 0; i < vals.length; ++i) {
+            ArrayUtils.wadd(g, etas[i], (vals[i] - off) * scale);
+          }
+        }
+      }
+    }*/
+
+/*    final void computeGradientMultipliers(double [][] etas, double [] ys, double [] ws){
+      int K = _beta[0].length;
+      double [] exps = new double[K+1];
+      for(int i = 0; i < etas.length; ++i) {
+        double w = ws[i];
+        if(w == 0){
+          Arrays.fill(etas[i],0);
+          continue;
+        }
+        int y = (int) ys[i];
+        double logSumExp = computeMultinomialEtas(etas[i], exps);
+        _likelihood -= w * (etas[i][y] - logSumExp);
+        for (int c = 0; c < K; ++c)
+          etas[i][c] = w * (exps[c + 1] - (y == c ? 1 : 0));
+      }
+    }*/
+
+    @Override public void map(Chunk[] chks) {
+      if(_job != null && _job.stop_requested()) throw new Job.JobCancelledException();
+      int numStart = _dinfo.numStart(); // first numerical column index
+      int K = _nclass;                  // number of classes
+      int P = _beta.length;             // number of predictors (+ intercept)
+      int M = chks[0]._len;             // number of rows in this chunk of data
+      _gradient = new double[P];        // same length as beta
+      double [][] etas = new double[M][K];          // store multiplier for non-intercept parameters
+      double [][] etasOffset = new double[M][K];    // store multiplier for intercept parameters
+      double[] offsets = new double[_nclass];       // store intercept values for all classes
+      for(int k = 0; k < _nclass; ++k)              // go through each class
+        offsets[k] = _beta[k*_ncoeffPClass];        // intercept
+      // sparse offset + intercept
+      if(_dinfo._normSub != null) { 
+        double[] tempCoeff = null;
+        for(int i = 0; i < _dinfo._nums; ++i) // go through each numerical column....
+          if(chks[_dinfo._cats + i].isSparseZero()) {
+            if (tempCoeff==null)
+              tempCoeff = new double[_nclass];
+            for (int classIndex = 0; classIndex < _nclass; classIndex++)
+              tempCoeff[classIndex] = _beta[numStart+i+classIndex*_nclass];
+            ArrayUtils.wadd(offsets, tempCoeff, -_dinfo._normSub[i] * _dinfo._normMul[i]);
+          }
+      }
+      for (int i = 0; i < chks[0]._len; ++i)
+        System.arraycopy(offsets, 0, etas[i], 0, K);
+      Chunk response = chks[_dinfo.responseChunkId(0)];
+      double [] ws = MemoryManager.malloc8d(M);
+      if(_dinfo._weights) ws = chks[_dinfo.weightChunkId()].getDoubles(ws,0,M);
+      else Arrays.fill(ws,1);
+      chks = Arrays.copyOf(chks,chks.length-1-(_dinfo._weights?1:0));
+      double [] vals = MemoryManager.malloc8d(M);
+      int [] ids = MemoryManager.malloc4(M);
+      computeCategoricalEtas(chks,etas,vals,ids);
+    //  computeNumericEtas(chks,etas,vals,ids);
+
+   //   calMultipliersNGradients(etas, etasOffset, ws, vals, ids, response, chks, M, P, numStart);
+
+    } 
+
+    @Override
+    public void reduce(GLMMultinomialGradientSpeedUpTask gmgt){
+      if(_gradient != gmgt._gradient)
+        ArrayUtils.add(_gradient,gmgt._gradient);
+      _likelihood += gmgt._likelihood;
+    }
+
+/*    @Override public void postGlobal(){
+      ArrayUtils.mult(_gradient, _reg);
+      int P = _beta.length;
+      // add l2 penalty
+      if (_currentLambda > 0) {
+        for (int c = 0; c < P - 1; ++c)
+          for (int j = 0; j < _beta[0].length; ++j)
+            _gradient[c][j] += _currentLambda * _beta[c][j];
+      }
+    }*/
+
+    public double [] gradient(){
+      double [] res = MemoryManager.malloc8d(_gradient.length);
+      System.arraycopy(_gradient, 0, res, 0, res.length);
+      return res;
+    }
+  }
+  
   // share between multinomial and ordinal regression
   static class GLMMultinomialGradientTask extends GLMMultinomialGradientBaseTask {
     public GLMMultinomialGradientTask(Job job, DataInfo dinfo, double lambda, double[][] beta, double reg) {
@@ -1146,7 +1360,7 @@ public abstract class GLMTask  {
 
     public GLMMultinomialGradientTask(Job job, DataInfo dinfo, double lambda, double[][] beta, GLMParameters glmp) {
       super(job, dinfo, lambda, beta, glmp);
-    }
+    }/**/
     @Override
     public void calMultipliersNGradients(double[][] etas, double[][] etasOffset, double[] ws, double[] vals,
                                          int[] ids, Chunk response, Chunk[] chks, int M, int P, int numStart) {

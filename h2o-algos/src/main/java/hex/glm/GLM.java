@@ -1080,6 +1080,7 @@ public class GLM extends ModelBuilder<GLMModel,GLMParameters,GLMOutput> {
       Solver solver = (_parms._solver == Solver.AUTO) ? defaultSolver() : _parms._solver;
       switch (solver) {
         case COORDINATE_DESCENT: // fall through to IRLSM
+        case IRLSM_SPEEDUP:  
         case IRLSM:
           if(_parms._family == Family.multinomial)
             fitIRLSM_multinomial(solver);
@@ -1824,6 +1825,7 @@ public class GLM extends ModelBuilder<GLMModel,GLMParameters,GLMOutput> {
     final BetaConstraint _bc;
     final double _l2pen; // l2 penalty
     double[][] _betaMultinomial;
+    double[] _betaMultinomialSpeedUp;
     final Job _job;
 
     public GLMGradientSolver(Job job, GLMParameters glmp, DataInfo dinfo, double l2pen, BetaConstraint bc) {
@@ -1858,7 +1860,18 @@ public class GLM extends ModelBuilder<GLMModel,GLMParameters,GLMOutput> {
 
     @Override
     public GLMGradientInfo getGradient(double[] beta) {
-      if (_parms._family == Family.multinomial || _parms._family == Family.ordinal) {
+      if (_parms._solver.equals(Solver.IRLSM_SPEEDUP)) { // do thing natively here
+        if (_betaMultinomialSpeedUp == null) {
+          _betaMultinomialSpeedUp = MemoryManager.malloc8d(beta.length);
+          System.arraycopy(beta, 0, _betaMultinomialSpeedUp, 0, beta.length);
+        }
+        GLMMultinomialGradientSpeedUpTask gt = new GLMMultinomialGradientSpeedUpTask(_job, _dinfo, _l2pen, _betaMultinomialSpeedUp,
+                _parms).doAll(_dinfo._adaptedFrame);
+        int nclasses = beta.length / (_dinfo.fullN() + 1);
+        double l2pen = ArrayUtils.l2norm2(_betaMultinomialSpeedUp, _dinfo._intercept, nclasses);
+        double[] grad = gt.gradient();
+        return new GLMGradientInfo(gt._likelihood, gt._likelihood * _parms._obj_reg + .5 * _l2pen * l2pen, grad);
+      } else if ((!_parms._solver.equals(Solver.IRLSM_SPEEDUP) &&_parms._family == Family.multinomial) || _parms._family == Family.ordinal) {
         if (_betaMultinomial == null) {
           int nclasses = beta.length / (_dinfo.fullN() + 1);
           assert beta.length % (_dinfo.fullN() + 1) == 0:"beta len = " + beta.length + ", fullN +1  == " + (_dinfo.fullN()+1);

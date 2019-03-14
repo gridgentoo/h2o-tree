@@ -104,6 +104,19 @@ public class ArrayUtils {
       sum += x[i]*x[i];
     return sum;
   }
+
+  public static double l2norm2(double [] x, boolean intercetp, int nclass){
+    double sum = 0;
+    int npred = x.length/nclass-1;
+    int interceptInd = npred+1;     // index of intercept of first class
+    int last = intercetp?npred:interceptInd;
+    for (int classInd=0; classInd < nclass; classInd++) { // sum square of coefficients over all classes
+      for (int i = 0; i < last; ++i) // sum square of coefficients for each class
+        sum += x[i+classInd*nclass] * x[i+classInd*nclass];
+    }
+    return sum;
+  }
+  
   public static double l2norm2(double[] x, double[] y) {  // Computes \sum_{i=1}^n (x_i - y_i)^2
     assert x.length == y.length;
     double sse = 0;
