@@ -1138,6 +1138,22 @@ public abstract class GLMTask  {
     }
   }
 
+  // This method needs to calculate Pr(yi=c) for each class c and to 1/(sum of all exps
+  static double  computeMultinomialEtasSpeedUp(double [] etas, double [] exps) {
+    double sumExp = 0;
+    int K = etas.length;
+    for(int c = 0; c < K; ++c) { // calculate pr(yi=c) for each class
+      double x = Math.exp(etas[c]);
+      sumExp += x;
+      exps[c] = x;
+    }
+    double reg = 1.0/(sumExp);
+    exps[K] = reg;  // store 1/(sum of exp)
+    for(int c = 0; c < K; ++c)  // calculate pr(yi=c) for each class
+      exps[c] *= reg;
+    return Math.log(sumExp);
+  }
+
   static class GLMMultinomialGradientSpeedUpTask extends MRTask<GLMMultinomialGradientSpeedUpTask> {
     final double[] _beta;
     final transient double _currentLambda;
@@ -1184,6 +1200,24 @@ public abstract class GLMTask  {
 
     }
 
+    // d-LLH/db
+    final void computeGradientMultipliers(double[][] etas, double[] ys, double[] ws) {
+      int K = _nclass;
+      double[] exps = new double[K + 1];
+      for (int i = 0; i < etas.length; ++i) { // go through each predictor
+        double w = ws[i];
+        if (w == 0) {                         // if weight for that row is zero, zero out the betas for that row
+          Arrays.fill(etas[i], 0);
+          continue;
+        }
+        int y = (int)ys[i];    // store true class response
+        double logSumExp = computeMultinomialEtasSpeedUp(etas[i], exps);
+        _likelihood -= w * (etas[i][y] - logSumExp);          // only contribution from response class
+        for (int c = 0; c < K; ++c)                           // calculate part of gradient without the x terms
+          etas[i][c] = w * (y==c?(exps[c]-1):exps[y]);  // part of the gradient without the x terms
+      }
+    }
+    
     // common between multinomial and ordinal
     public final void computeCategoricalEtas(Chunk[] chks, double[][] etas, double[] vals, int[] ids) {
       // categoricals
@@ -1193,42 +1227,20 @@ public abstract class GLMTask  {
           int nvals = c.getSparseDoubles(vals, ids, -1);
           for (int i = 0; i < nvals; ++i) {
             int id = _dinfo.getCategoricalId(cid, (int) vals[i]);
-            if (id >= 0) ArrayUtils.add(etas[ids[i]], _beta[id]);
+              if (id >= 0) ArrayUtils.add(etas[ids[i]], _beta, id, _ncoeffPClass);
           }
         } else {
           c.getIntegers(ids, 0, c._len, -1);
-          for (int i = 0; i < ids.length; ++i) {
+          for (int i = 0; i < ids.length; ++i) { // go through each row here
             int id = _dinfo.getCategoricalId(cid, ids[i]);
-            if (id >= 0) ArrayUtils.add(etas[i], _beta[id]);
+              if (id >= 0) ArrayUtils.add(etas[i], _beta, id, _ncoeffPClass); // beta index should depend on which class
           }
         }
       }
     }
-
-/*    public final void computeCategoricalGrads(Chunk[] chks, double[][] etas, double[] vals, int[] ids) {
-      // categoricals
-      for (int cid = 0; cid < _dinfo._cats; ++cid) {
-        Chunk c = chks[cid];
-        if (c.isSparseZero()) {
-          int nvals = c.getSparseDoubles(vals, ids, -1);
-          for (int i = 0; i < nvals; ++i) {
-            int id = _dinfo.getCategoricalId(cid, (int) vals[i]);
-            if (id >= 0) ArrayUtils.add(_gradient[id], etas[ids[i]]);
-          }
-        } else {
-          c.getIntegers(ids, 0, c._len, -1);
-          for (int i = 0; i < ids.length; ++i) {
-            int id = _dinfo.getCategoricalId(cid, ids[i]);
-            if (id >= 0) ArrayUtils.add(_gradient[id], etas[i]);
-          }
-        }
-      }
-    }*/
-
-/*    public final void computeNumericEtas(Chunk[] chks, double[][] etas, double[] vals, int[] ids) {
-      int numOff = _dinfo.numStart();
-      for (int cid = 0; cid < _dinfo._nums; ++cid) {
-        double[] b = _beta[numOff + cid];
+    
+    public final void computeNumericEtas(Chunk[] chks, double[][] etas, double[] vals, int[] ids) {
+       for (int cid = 0; cid < _dinfo._nums; ++cid) {
         double scale = _dinfo._normMul != null ? _dinfo._normMul[cid] : 1;
         double NA = _dinfo._numMeans[cid];
         Chunk c = chks[cid + _dinfo._cats];
@@ -1236,62 +1248,66 @@ public abstract class GLMTask  {
           int nvals = c.getSparseDoubles(vals, ids, NA);
           for (int i = 0; i < nvals; ++i) {
             double d = vals[i] * scale;
-            ArrayUtils.wadd(etas[ids[i]], b, d);
+            ArrayUtils.wadd(etas[ids[i]], _beta, d, _dinfo._numOffsets[cid], _ncoeffPClass);
           }
         } else {
           c.getDoubles(vals, 0, vals.length, NA);
           double off = _dinfo._normSub != null ? _dinfo._normSub[cid] : 0;
           for (int i = 0; i < vals.length; ++i) {
-            double d = (vals[i] - off) * scale;
-            ArrayUtils.wadd(etas[i], b, d);
+            double d = (vals[i] - off) * scale; // adjust for standardization
+            ArrayUtils.wadd(etas[i], _beta, d, _dinfo._numOffsets[cid], _ncoeffPClass);
           }
         }
       }
-    }*/
+    }
+    
+    public final void computeCategoricalGrads(Chunk[] chks, double[][] etas, double[] vals, int[] ids) {
+      // categoricals
+      for (int cid = 0; cid < _dinfo._cats; ++cid) {  // for each predictor
+        Chunk c = chks[cid];
+        if (c.isSparseZero()) {
+          int nvals = c.getSparseDoubles(vals, ids, -1);
+          for (int i = 0; i < nvals; ++i) { // for each row
+            int id = _dinfo.getCategoricalId(cid, (int) vals[i]);
+            if (id >= 0) ArrayUtils.add(_gradient, etas[ids[i]], id, _ncoeffPClass, _nclass);
+          }
+        } else {
+          c.getIntegers(ids, 0, c._len, -1);
+          for (int i = 0; i < ids.length; ++i) {  // for each row
+            int id = _dinfo.getCategoricalId(cid, ids[i]);  // id already takes into account previous cat columns
+            if (id >= 0) ArrayUtils.add(_gradient, etas[i], id, _ncoeffPClass, _nclass);
+          }
+        }
+      }
+    }
 
-/*    public final void computeNumericGrads(Chunk[] chks, double[][] etas, double[] vals, int[] ids) {
+    public final void computeNumericGrads(Chunk[] chks, double[][] etas, double[] vals, int[] ids) {
       int numOff = _dinfo.numStart();
       for (int cid = 0; cid < _dinfo._nums; ++cid) {
-        double[] g = _gradient[numOff + cid];
         double NA = _dinfo._numMeans[cid];
         Chunk c = chks[cid + _dinfo._cats];
         double scale = _dinfo._normMul == null ? 1 : _dinfo._normMul[cid];
         if (c.isSparseZero() || c.isSparseNA()) {
           int nVals = c.getSparseDoubles(vals, ids, NA);
           for (int i = 0; i < nVals; ++i)
-            ArrayUtils.wadd(g, etas[ids[i]], vals[i] * scale);
+            ArrayUtils.wadd(_gradient, etas[ids[i]], vals[i] * scale, _dinfo._numOffsets[cid], _ncoeffPClass,
+                    _nclass);
         } else {
           double off = _dinfo._normSub == null ? 0 : _dinfo._normSub[cid];
           c.getDoubles(vals, 0, vals.length, NA);
-          for (int i = 0; i < vals.length; ++i) {
-            ArrayUtils.wadd(g, etas[i], (vals[i] - off) * scale);
+          for (int i = 0; i < vals.length; ++i) {  // standardization
+            ArrayUtils.wadd(_gradient, etas[i], (vals[i] - off) * scale, _dinfo._numOffsets[cid], _ncoeffPClass,
+                    _nclass);
           }
         }
       }
-    }*/
-
-/*    final void computeGradientMultipliers(double [][] etas, double [] ys, double [] ws){
-      int K = _beta[0].length;
-      double [] exps = new double[K+1];
-      for(int i = 0; i < etas.length; ++i) {
-        double w = ws[i];
-        if(w == 0){
-          Arrays.fill(etas[i],0);
-          continue;
-        }
-        int y = (int) ys[i];
-        double logSumExp = computeMultinomialEtas(etas[i], exps);
-        _likelihood -= w * (etas[i][y] - logSumExp);
-        for (int c = 0; c < K; ++c)
-          etas[i][c] = w * (exps[c + 1] - (y == c ? 1 : 0));
-      }
-    }*/
+    }
 
     @Override public void map(Chunk[] chks) {
       if(_job != null && _job.stop_requested()) throw new Job.JobCancelledException();
       int numStart = _dinfo.numStart(); // first numerical column index
       int K = _nclass;                  // number of classes
-      int P = _beta.length;             // number of predictors (+ intercept)
+      int P = _beta.length;             // total number of predictors (+ intercepts) for all classes
       int M = chks[0]._len;             // number of rows in this chunk of data
       _gradient = new double[P];        // same length as beta
       double [][] etas = new double[M][K];          // store multiplier for non-intercept parameters
@@ -1320,11 +1336,12 @@ public abstract class GLMTask  {
       chks = Arrays.copyOf(chks,chks.length-1-(_dinfo._weights?1:0));
       double [] vals = MemoryManager.malloc8d(M);
       int [] ids = MemoryManager.malloc4(M);
+
       computeCategoricalEtas(chks,etas,vals,ids);
-    //  computeNumericEtas(chks,etas,vals,ids);
-
-   //   calMultipliersNGradients(etas, etasOffset, ws, vals, ids, response, chks, M, P, numStart);
-
+      computeNumericEtas(chks,etas,vals,ids); // etas contains just the betaT*X+beta0 for each class
+      computeGradientMultipliers(etas, response.getDoubles(vals, 0, M), ws);
+      computeCategoricalGrads(chks, etas, vals, ids);  // etas contains gradient without x, vals store response
+      computeNumericGrads(chks, etas, vals, ids);
     } 
 
     @Override

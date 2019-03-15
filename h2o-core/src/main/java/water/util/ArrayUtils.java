@@ -229,6 +229,20 @@ public class ArrayUtils {
     for(int i = 0; i < a.length; i++ ) a[i] += b[i];
     return a;
   }
+  // a is gradient
+  public static double[] add(double[] a, double[] b, int colid, int ncoeffPClass, int nclass) {
+    if( a==null ) return b;
+    for (int classInd=0; classInd < nclass; classInd++) {
+      a[classInd*ncoeffPClass+colid] += b[classInd];
+    }
+    return a;
+  }
+  public static double[] add(double[] a, double[] b, int colid, int ncoeffPClass) {
+    if( a==null ) return b;
+    for(int i = 0; i < a.length; i++ ) // per class
+      a[i] += b[i*ncoeffPClass+colid];
+    return a;
+  }
   public static double[] add(double[] a, double b) {
     for(int i = 0; i < a.length; i++ ) a[i] += b;
     return a;
@@ -238,6 +252,21 @@ public class ArrayUtils {
     if( a==null ) return b;
     for(int i = 0; i < a.length; i++ )
       a[i] += w*b[i];
+    return a;
+  }
+
+  public static double[] wadd(double[] a, double[] b, double w, int colid, int ncoeffPClass) {
+    if( a==null ) return b;
+    for(int i = 0; i < a.length; i++ ) // going through each class
+      a[i] += w*b[i*ncoeffPClass+colid];
+    return a;
+  }
+
+  // a is gradient, b has length nclass
+  public static double[] wadd(double[] a, double[] b, double w, int colid, int ncoeffPClass, int nclass) {
+    if( a==null ) return b;
+    for(int i = 0; i < nclass; i++ ) // going through each class
+      a[i*ncoeffPClass+colid] += w*b[i];
     return a;
   }
 
