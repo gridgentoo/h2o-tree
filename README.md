@@ -1,5 +1,6 @@
 ### H2O
-Finally, You Can Plot H2O Decision Trees in R
+Finally, You Can Plot H2O Decision Trees in R  
+ {Legacy-Code в (Дереве решений - Decision Tree) } перенести на обучаемую нейроонную сети H20  
 https://docs.google.com/document/d/1-dwbFdGknONmWA2UHVes0q8BCKWh99ohlsi6izw9BDI/edit
 
 H2O scales statistics, machine learning, and math over Big Data. 
