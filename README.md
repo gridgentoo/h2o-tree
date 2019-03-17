@@ -3,6 +3,9 @@ Finally, You Can Plot H2O Decision Trees in R
  {Legacy-Code в (Дереве решений - Decision Tree) } перенести на обучаемую нейроонную сети H20  
 https://docs.google.com/document/d/1-dwbFdGknONmWA2UHVes0q8BCKWh99ohlsi6izw9BDI/edit
 
+[ML] _Bloomberg. _Foundations of Machine Learning
+https://www.youtube.com/playlist?list=PLrTrFnOkIFb35OxTItrCnfx1Slrr8SPL9
+
 H2O scales statistics, machine learning, and math over Big Data. 
 
 H2O uses familiar interfaces like R, Python, Scala, the Flow notebook graphical interface, Excel, & JSON so that Big Data enthusiasts & experts can explore, munge, model, and score datasets using a range of algorithms including advanced ones like Deep Learning. H2O is extensible so that developers can add data transformations and model algorithms of their choice and access them through all of those clients.
