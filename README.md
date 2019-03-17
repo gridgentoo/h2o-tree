@@ -1,6 +1,6 @@
-# H2O
-
-[![Join the chat at https://gitter.im/h2oai/h2o-3](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/h2oai/h2o-3?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+### H2O
+Finally, You Can Plot H2O Decision Trees in R
+https://docs.google.com/document/d/1-dwbFdGknONmWA2UHVes0q8BCKWh99ohlsi6izw9BDI/edit
 
 H2O scales statistics, machine learning, and math over Big Data. 
 
